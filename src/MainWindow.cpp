@@ -966,7 +966,9 @@ void MainWindow::onTailStatusChanged(const TailStatus &pNewStatus) {
 
     const auto &tailscalePrefs = pCurrentExecution->currentSettings();
 
-    if (pTailStatus.user.id > 0) {
+    // Tailscale only reports "Stopped" for an account that is logged in. Right after
+    // boot it has no user info yet, and showing Login would create a new account.
+    if (pTailStatus.user.id > 0 || pTailStatus.backendState == "Stopped") {
         if (pTailStatus.self.online)
             changeToState(TailState::Connected);
         else
