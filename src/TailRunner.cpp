@@ -46,6 +46,22 @@ namespace
 
     // Where a finished logout moves on to; empty when no other account is left
     static QString accountAfterLogout;
+
+    // Offers to open the login URL in `tailscale up` output; false when there is none
+    static bool promptForLoginUrl(const QString& output) {
+        static QRegularExpression regex(R"(https:\/\/login\.tailscale\.com\/a\/[a-zA-Z0-9]+)");
+        const QRegularExpressionMatch match = regex.match(output);
+        if (!match.hasMatch())
+            return false;
+
+        const QString url = match.captured(0);
+        const auto res = QMessageBox::information(nullptr, "Login", "To login you will have to visit " + url + "\n\nPress OK to open the URL",
+            QMessageBox::Ok, QMessageBox::Ok);
+
+        if (res == QMessageBox::Ok)
+            QDesktopServices::openUrl(QUrl(url));
+        return true;
+    }
 }
 
 TailRunner::TailRunner(const TailSettings& s, QObject* parent)
@@ -429,6 +445,11 @@ void TailRunner::onProcessCanReadStandardError(BufferedProcessWrapper* wrapper) 
 #endif
     else {
         const QString errorInfo(wrapper->process()->readAllStandardError());
+        // An expired key makes `tailscale up` print a login URL here and wait for it to be visited
+        if (commandInfo == Command::Connect && promptForLoginUrl(errorInfo)) {
+            return;
+        }
+
         if (!errorInfo.isEmpty()) {
             qDebug() << errorInfo;
 
@@ -475,18 +496,8 @@ void TailRunner::onProcessFinished(BufferedProcessWrapper* process, int exitCode
             // as a regular user
 
             const QString info(process->process()->readAllStandardOutput());
-            if (info.contains("https://login.tailscale.com")) {
+            if (promptForLoginUrl(info)) {
                 qDebug() << "Login required!";
-                static QRegularExpression regex(R"(https:\/\/login\.tailscale\.com\/a\/[a-zA-Z0-9]+)");
-                const QRegularExpressionMatch match = regex.match(info);
-                if (match.hasMatch()) {
-                    const QString url = match.captured(0);
-                    const auto res = QMessageBox::information(nullptr, "Login", "To login you will have to visit " + url + "\n\nPress OK to open the URL",
-                        QMessageBox::Ok, QMessageBox::Ok);
-
-                    if (res == QMessageBox::Ok)
-                        QDesktopServices::openUrl(QUrl(url));
-                }
             }
             else {
                 bool isUserOperator = false;
